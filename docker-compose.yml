@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: wfh_assessment
+      POSTGRES_USER: wfh
+      POSTGRES_PASSWORD: wfh
+    ports:
+      - "5432:5432"
+    volumes:
+      - wfh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wfh -d wfh_assessment"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://wfh:wfh@postgres:5432/wfh_assessment
+      MONTHLY_WFH_LIMIT: ${MONTHLY_WFH_LIMIT:-5}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      BOOTSTRAP_KEY: ${BOOTSTRAP_KEY:?Set BOOTSTRAP_KEY in the root .env file}
+      OLLAMA_URL: http://ollama:11434
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama-model:
+        condition: service_completed_successfully
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  ollama-model:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:3b"]
+    depends_on:
+      - ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  wfh-postgres:
+  ollama-data:
